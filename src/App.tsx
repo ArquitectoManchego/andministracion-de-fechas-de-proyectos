@@ -1,0 +1,322 @@
+import React, { useState, useEffect } from 'react';
+import { Project, Task, Resource, SpecialEvent, GanttZoom } from './types';
+import { 
+  INITIAL_PROJECTS, 
+  INITIAL_TASKS, 
+  INITIAL_RESOURCES, 
+  INITIAL_SPECIAL_EVENTS 
+} from './data/initialProjects';
+import { Header } from './components/Header';
+import { GanttSplitView } from './components/GanttSplitView';
+import { TaskModal } from './components/TaskModal';
+import { CostDashboard } from './components/CostDashboard';
+import { ResourcesView } from './components/ResourcesView';
+import { FODADashboard } from './components/FODADashboard';
+import { OverviewDashboard } from './components/OverviewDashboard';
+import { recalculateSummaries, cascadeDependencies } from './utils/ganttUtils';
+
+const STORAGE_KEY_PROJECTS = 'projectmaster_projects_v1';
+const STORAGE_KEY_TASKS = 'projectmaster_tasks_v1';
+const STORAGE_KEY_RESOURCES = 'projectmaster_resources_v1';
+const STORAGE_KEY_EVENTS = 'projectmaster_events_v1';
+
+export function App() {
+  // Estado de proyectos
+  const [projects, setProjects] = useState<Project[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_PROJECTS);
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { console.error(e); }
+    }
+    return INITIAL_PROJECTS;
+  });
+
+  // Estado de tareas
+  const [tasks, setTasks] = useState<Task[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_TASKS);
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { console.error(e); }
+    }
+    return recalculateSummaries(INITIAL_TASKS);
+  });
+
+  // Estado de recursos
+  const [resources, setResources] = useState<Resource[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_RESOURCES);
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { console.error(e); }
+    }
+    return INITIAL_RESOURCES;
+  });
+
+  // Eventos especiales (Viaje a Cancún)
+  const [specialEvents, setSpecialEvents] = useState<SpecialEvent[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_EVENTS);
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { console.error(e); }
+    }
+    return INITIAL_SPECIAL_EVENTS;
+  });
+
+  // UI States
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
+  const [activeTab, setActiveTab] = useState<'gantt' | 'overview' | 'costs' | 'resources' | 'foda'>('gantt');
+  const [zoom, setZoom] = useState<GanttZoom>('day');
+  const [showCriticalPath, setShowCriticalPath] = useState<boolean>(true);
+
+  // Modal de edición
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState<boolean>(false);
+
+  // Persistencia en LocalStorage
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_PROJECTS, JSON.stringify(projects));
+  }, [projects]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_TASKS, JSON.stringify(tasks));
+  }, [tasks]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_RESOURCES, JSON.stringify(resources));
+  }, [resources]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_EVENTS, JSON.stringify(specialEvents));
+  }, [specialEvents]);
+
+  // Actualizar tareas con recálculo automático
+  const handleUpdateTasks = (newTasks: Task[]) => {
+    setTasks(recalculateSummaries(newTasks));
+  };
+
+  // Abrir modal de edición
+  const handleEditTask = (task: Task) => {
+    setEditingTask(task);
+    setIsTaskModalOpen(true);
+  };
+
+  // Guardar tarea editada
+  const handleSaveTask = (savedTask: Task) => {
+    const exists = tasks.some(t => t.id === savedTask.id);
+    let updatedTasks: Task[];
+
+    if (exists) {
+      updatedTasks = tasks.map(t => (t.id === savedTask.id ? savedTask : t));
+    } else {
+      updatedTasks = [...tasks, savedTask];
+    }
+
+    // Cascada de dependencias y cálculo de resumen
+    const cascaded = cascadeDependencies(updatedTasks, savedTask.id);
+    setTasks(recalculateSummaries(cascaded));
+  };
+
+  // Agregar una nueva tarea
+  const handleAddNewTask = () => {
+    const targetProject = selectedProjectId === 'all' ? projects[0].id : selectedProjectId;
+    const newTask: Task = {
+      id: `t-new-${Date.now()}`,
+      projectId: targetProject,
+      wbs: `${tasks.length + 1}`,
+      name: 'Nueva Acción / Tarea',
+      startDate: '2026-09-08',
+      endDate: '2026-09-10',
+      duration: 2,
+      progress: 0,
+      predecessors: [],
+      assignedTo: ['res-alex'],
+      costEstimated: 3000,
+      costActual: 0,
+      level: 1,
+      parentId: null,
+      isSummary: false,
+      isMilestone: false,
+      costBreakdown: {
+        manoDeObra: 1500,
+        materiales: 1500,
+        equipamiento: 0,
+        tramites: 0
+      }
+    };
+    setEditingTask(newTask);
+    setIsTaskModalOpen(true);
+  };
+
+  // Agregar subtarea o tarea debajo
+  const handleAddTaskBelow = (parentTask?: Task) => {
+    const targetProject = parentTask ? parentTask.projectId : (selectedProjectId === 'all' ? projects[0].id : selectedProjectId);
+    const parentId = parentTask ? (parentTask.isSummary ? parentTask.id : parentTask.parentId) : null;
+    const level = parentTask ? (parentTask.isSummary ? parentTask.level + 1 : parentTask.level) : 1;
+
+    const newTask: Task = {
+      id: `t-sub-${Date.now()}`,
+      projectId: targetProject,
+      wbs: parentTask ? `${parentTask.wbs}.1` : `${tasks.length + 1}`,
+      name: 'Nueva Subtarea',
+      startDate: parentTask ? parentTask.startDate : '2026-09-08',
+      endDate: parentTask ? parentTask.endDate : '2026-09-10',
+      duration: 2,
+      progress: 0,
+      predecessors: parentTask ? [parentTask.id] : [],
+      assignedTo: ['res-alex'],
+      costEstimated: 2000,
+      costActual: 0,
+      level,
+      parentId,
+      isSummary: false,
+      isMilestone: false
+    };
+
+    setEditingTask(newTask);
+    setIsTaskModalOpen(true);
+  };
+
+  // Eliminar tarea
+  const handleDeleteTask = (taskId: string) => {
+    const updated = tasks.filter(t => t.id !== taskId && t.parentId !== taskId);
+    setTasks(recalculateSummaries(updated));
+  };
+
+  // Exportar proyecto a JSON
+  const handleExport = () => {
+    const exportData = {
+      version: '1.0',
+      timestamp: new Date().toISOString(),
+      projects,
+      tasks,
+      resources,
+      specialEvents
+    };
+    const jsonStr = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `plan_proyectos_gantt_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Importar proyecto desde JSON
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const content = evt.target?.result as string;
+        const parsed = JSON.parse(content);
+
+        if (parsed.projects && parsed.tasks) {
+          setProjects(parsed.projects);
+          setTasks(recalculateSummaries(parsed.tasks));
+          if (parsed.resources) setResources(parsed.resources);
+          if (parsed.specialEvents) setSpecialEvents(parsed.specialEvents);
+          alert('¡Proyecto cargado exitosamente!');
+        } else {
+          alert('El archivo no contiene una estructura válida de proyecto.');
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Error al leer el archivo JSON.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  // Imprimir / Guardar a PDF
+  const handlePrint = () => {
+    window.print();
+  };
+
+  return (
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-100">
+      {/* Barra de Navegación y Herramientas Superior */}
+      <Header
+        projects={projects}
+        selectedProjectId={selectedProjectId}
+        onSelectProject={setSelectedProjectId}
+        activeTab={activeTab}
+        onSelectTab={setActiveTab}
+        zoom={zoom}
+        onZoomChange={setZoom}
+        showCriticalPath={showCriticalPath}
+        onToggleCriticalPath={() => setShowCriticalPath(!showCriticalPath)}
+        onAddTask={handleAddNewTask}
+        onExport={handleExport}
+        onImport={handleImport}
+        onPrint={handlePrint}
+      />
+
+      {/* Vistas Principales */}
+      <main className="flex-1 flex overflow-hidden">
+        {activeTab === 'gantt' && (
+          <GanttSplitView
+            tasks={tasks}
+            projects={projects}
+            resources={resources}
+            specialEvents={specialEvents}
+            selectedProjectId={selectedProjectId}
+            zoom={zoom}
+            showCriticalPath={showCriticalPath}
+            onUpdateTasks={handleUpdateTasks}
+            onEditTask={handleEditTask}
+            onAddTaskBelow={handleAddTaskBelow}
+            onDeleteTask={handleDeleteTask}
+          />
+        )}
+
+        {activeTab === 'overview' && (
+          <OverviewDashboard
+            projects={projects}
+            tasks={tasks}
+            specialEvents={specialEvents}
+            onSelectProject={(id) => {
+              setSelectedProjectId(id);
+              setActiveTab('gantt');
+            }}
+            onGoToGantt={() => setActiveTab('gantt')}
+          />
+        )}
+
+        {activeTab === 'costs' && (
+          <CostDashboard
+            tasks={tasks}
+            projects={projects}
+          />
+        )}
+
+        {activeTab === 'resources' && (
+          <ResourcesView
+            tasks={tasks}
+            resources={resources}
+            projects={projects}
+            onSelectTask={(task) => {
+              setEditingTask(task);
+              setIsTaskModalOpen(true);
+            }}
+          />
+        )}
+
+        {activeTab === 'foda' && (
+          <FODADashboard />
+        )}
+      </main>
+
+      {/* Modal de edición/creación de tareas */}
+      <TaskModal
+        isOpen={isTaskModalOpen}
+        onClose={() => setIsTaskModalOpen(false)}
+        task={editingTask}
+        tasks={tasks}
+        projects={projects}
+        resources={resources}
+        onSave={handleSaveTask}
+      />
+    </div>
+  );
+}
+
+export default App;
