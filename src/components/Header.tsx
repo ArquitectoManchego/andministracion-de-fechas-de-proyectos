@@ -13,7 +13,9 @@ import {
   Flame, 
   LayoutDashboard,
   ZoomIn,
-  ZoomOut
+  ZoomOut,
+  Cloud,
+  RefreshCw
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -30,6 +32,7 @@ interface HeaderProps {
   onExport: () => void;
   onImport: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onPrint: () => void;
+  cloudSyncStatus?: 'synced' | 'syncing' | 'offline';
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -46,6 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
   onExport,
   onImport,
   onPrint,
+  cloudSyncStatus = 'synced',
 }) => {
   return (
     <header className="bg-slate-900 text-white border-b border-slate-800 shadow-md no-print select-none">
@@ -61,6 +65,28 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="text-xs bg-teal-500/20 text-teal-300 border border-teal-500/30 px-2 py-0.5 rounded-full font-medium">
                 MS Project Engine
               </span>
+              {/* Badge de sincronización con Firebase */}
+              <div 
+                className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border bg-slate-800 border-slate-700 ml-1"
+                title="Sincronización en la nube con Firebase Firestore (studio-9900268407-536d0)"
+              >
+                {cloudSyncStatus === 'syncing' ? (
+                  <>
+                    <RefreshCw className="w-2.5 h-2.5 text-amber-400 animate-spin" />
+                    <span className="text-amber-300">Guardando en Firebase...</span>
+                  </>
+                ) : cloudSyncStatus === 'offline' ? (
+                  <>
+                    <Cloud className="w-2.5 h-2.5 text-slate-400" />
+                    <span className="text-slate-400">Modo Local</span>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-emerald-300">Firebase Firestore</span>
+                  </>
+                )}
+              </div>
             </div>
             <p className="text-xs text-slate-400 m-0">
               Planificación Multiproyecto: Casa Multinegocios, Andamar y Logística

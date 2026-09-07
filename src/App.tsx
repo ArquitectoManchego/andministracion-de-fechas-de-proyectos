@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Project, Task, Resource, SpecialEvent, GanttZoom } from './types';
 import { 
   INITIAL_PROJECTS, 
@@ -14,6 +14,7 @@ import { ResourcesView } from './components/ResourcesView';
 import { FODADashboard } from './components/FODADashboard';
 import { OverviewDashboard } from './components/OverviewDashboard';
 import { recalculateSummaries, cascadeDependencies } from './utils/ganttUtils';
+import { saveToFirebase, getFromFirebase, subscribeToFirebase } from './firebase';
 
 const STORAGE_KEY_PROJECTS = 'projectmaster_projects_v1';
 const STORAGE_KEY_TASKS = 'projectmaster_tasks_v1';
@@ -57,6 +58,9 @@ export function App() {
     return INITIAL_SPECIAL_EVENTS;
   });
 
+  // Estado de sincronización en la nube con Firebase
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'synced' | 'syncing' | 'offline'>('syncing');
+
   // UI States
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
   const [activeTab, setActiveTab] = useState<'gantt' | 'overview' | 'costs' | 'resources' | 'foda'>('gantt');
@@ -67,7 +71,7 @@ export function App() {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState<boolean>(false);
 
-  // Persistencia en LocalStorage
+  // Persistencia local en LocalStorage
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_PROJECTS, JSON.stringify(projects));
   }, [projects]);
@@ -84,9 +88,82 @@ export function App() {
     localStorage.setItem(STORAGE_KEY_EVENTS, JSON.stringify(specialEvents));
   }, [specialEvents]);
 
+  // Sincronización bidireccional y en tiempo real con Firebase Firestore
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+
+    async function initCloudSync() {
+      try {
+        setCloudSyncStatus('syncing');
+        const cloudData = await getFromFirebase();
+
+        if (cloudData && cloudData.projects && cloudData.tasks && cloudData.projects.length > 0) {
+          setProjects(cloudData.projects);
+          setTasks(recalculateSummaries(cloudData.tasks));
+          if (cloudData.resources) setResources(cloudData.resources);
+          if (cloudData.specialEvents) setSpecialEvents(cloudData.specialEvents);
+          setCloudSyncStatus('synced');
+        } else {
+          // Primera inicialización en Firestore
+          await saveToFirebase({
+            projects,
+            tasks,
+            resources,
+            specialEvents
+          });
+          setCloudSyncStatus('synced');
+        }
+
+        // Suscribirse a actualizaciones en vivo
+        unsubscribe = subscribeToFirebase((updated) => {
+          if (updated && updated.projects && updated.tasks) {
+            setProjects(updated.projects);
+            setTasks(recalculateSummaries(updated.tasks));
+            if (updated.resources) setResources(updated.resources);
+            if (updated.specialEvents) setSpecialEvents(updated.specialEvents);
+            setCloudSyncStatus('synced');
+          }
+        });
+      } catch (err) {
+        console.warn('Operando en modo local (Firebase sin conexión):', err);
+        setCloudSyncStatus('offline');
+      }
+    }
+
+    initCloudSync();
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
+  // Función para guardar cambios en Firebase Firestore
+  const syncToCloud = async (
+    p = projects,
+    t = tasks,
+    r = resources,
+    e = specialEvents
+  ) => {
+    try {
+      setCloudSyncStatus('syncing');
+      await saveToFirebase({
+        projects: p,
+        tasks: t,
+        resources: r,
+        specialEvents: e
+      });
+      setCloudSyncStatus('synced');
+    } catch (err) {
+      console.warn('Fallo al sincronizar con Firebase:', err);
+      setCloudSyncStatus('offline');
+    }
+  };
+
   // Actualizar tareas con recálculo automático
   const handleUpdateTasks = (newTasks: Task[]) => {
-    setTasks(recalculateSummaries(newTasks));
+    const recalculated = recalculateSummaries(newTasks);
+    setTasks(recalculated);
+    syncToCloud(projects, recalculated, resources, specialEvents);
   };
 
   // Abrir modal de edición
@@ -108,7 +185,9 @@ export function App() {
 
     // Cascada de dependencias y cálculo de resumen
     const cascaded = cascadeDependencies(updatedTasks, savedTask.id);
-    setTasks(recalculateSummaries(cascaded));
+    const finalTasks = recalculateSummaries(cascaded);
+    setTasks(finalTasks);
+    syncToCloud(projects, finalTasks, resources, specialEvents);
   };
 
   // Agregar una nueva tarea
@@ -174,7 +253,9 @@ export function App() {
   // Eliminar tarea
   const handleDeleteTask = (taskId: string) => {
     const updated = tasks.filter(t => t.id !== taskId && t.parentId !== taskId);
-    setTasks(recalculateSummaries(updated));
+    const finalTasks = recalculateSummaries(updated);
+    setTasks(finalTasks);
+    syncToCloud(projects, finalTasks, resources, specialEvents);
   };
 
   // Exportar proyecto a JSON
@@ -210,10 +291,12 @@ export function App() {
 
         if (parsed.projects && parsed.tasks) {
           setProjects(parsed.projects);
-          setTasks(recalculateSummaries(parsed.tasks));
+          const finalTasks = recalculateSummaries(parsed.tasks);
+          setTasks(finalTasks);
           if (parsed.resources) setResources(parsed.resources);
           if (parsed.specialEvents) setSpecialEvents(parsed.specialEvents);
-          alert('¡Proyecto cargado exitosamente!');
+          syncToCloud(parsed.projects, finalTasks, parsed.resources, parsed.specialEvents);
+          alert('¡Proyecto cargado y sincronizado con Firebase exitosamente!');
         } else {
           alert('El archivo no contiene una estructura válida de proyecto.');
         }
@@ -248,6 +331,7 @@ export function App() {
         onExport={handleExport}
         onImport={handleImport}
         onPrint={handlePrint}
+        cloudSyncStatus={cloudSyncStatus}
       />
 
       {/* Vistas Principales */}
