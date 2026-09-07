@@ -1,4 +1,4 @@
-import { Project, Task, Resource, SpecialEvent } from '../types/index';
+import type { Project, Task, Resource, SpecialEvent } from '../types/index.ts';
 
 export const INITIAL_RESOURCES: Resource[] = [
   { id: 'res-alex', name: 'Alex (Propietario / Director)', role: 'Coordinación y Supervisión General', color: '#3b82f6' },

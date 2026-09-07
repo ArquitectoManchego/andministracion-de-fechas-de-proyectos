@@ -15,6 +15,7 @@ import { FODADashboard } from './components/FODADashboard';
 import { OverviewDashboard } from './components/OverviewDashboard';
 import { recalculateSummaries, cascadeDependencies } from './utils/ganttUtils';
 import { saveToFirebase, getFromFirebase, subscribeToFirebase } from './firebase';
+import { downloadMsProjectXml } from './utils/mspXmlExport';
 
 const STORAGE_KEY_PROJECTS = 'projectmaster_projects_v1';
 const STORAGE_KEY_TASKS = 'projectmaster_tasks_v1';
@@ -278,6 +279,11 @@ export function App() {
     URL.revokeObjectURL(url);
   };
 
+  // Exportar a XML de MS Project para extensiones BIM 4D en Trimble SketchUp
+  const handleExportXml = () => {
+    downloadMsProjectXml(projects, tasks, selectedProjectId);
+  };
+
   // Importar proyecto desde JSON
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -329,6 +335,7 @@ export function App() {
         onToggleCriticalPath={() => setShowCriticalPath(!showCriticalPath)}
         onAddTask={handleAddNewTask}
         onExport={handleExport}
+        onExportXml={handleExportXml}
         onImport={handleImport}
         onPrint={handlePrint}
         cloudSyncStatus={cloudSyncStatus}

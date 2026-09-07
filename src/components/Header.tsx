@@ -15,7 +15,8 @@ import {
   ZoomIn,
   ZoomOut,
   Cloud,
-  RefreshCw
+  RefreshCw,
+  FileCode
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -30,6 +31,7 @@ interface HeaderProps {
   onToggleCriticalPath: () => void;
   onAddTask: () => void;
   onExport: () => void;
+  onExportXml: () => void;
   onImport: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onPrint: () => void;
   cloudSyncStatus?: 'synced' | 'syncing' | 'offline';
@@ -47,6 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleCriticalPath,
   onAddTask,
   onExport,
+  onExportXml,
   onImport,
   onPrint,
   cloudSyncStatus = 'synced',
@@ -133,6 +136,16 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Flame className="w-3.5 h-3.5 text-rose-300" />
             <span>Ruta Crítica</span>
+          </button>
+
+          {/* Botón Exportar XML MS Project para BIM 4D en SketchUp */}
+          <button
+            onClick={onExportXml}
+            className="flex items-center space-x-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-2.5 py-1.5 rounded-md transition shadow border border-blue-500"
+            title="Exportar archivo XML compatible con Microsoft Project para extensiones BIM 4D en Trimble SketchUp"
+          >
+            <FileCode className="w-3.5 h-3.5 text-blue-200" />
+            <span>XML MS Project (BIM 4D)</span>
           </button>
 
           {/* Import / Export / Print */}
